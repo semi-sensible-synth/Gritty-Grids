@@ -35,8 +35,14 @@ using namespace avrlib;
 using namespace grids;
 using namespace avr_audio_bootloader;
 
-MidiInput midi;
-Inputs inputs;
+//MidiInput midi;
+MidiIO midi;
+
+//Inputs inputs;
+ResetInput reset_input;
+ButtonInput button_input;
+ClockInput clock_input;
+
 Leds leds;
 Decoder decoder;
 
@@ -48,8 +54,11 @@ void (*main_entry_point)(void) = 0x0000;
 inline void Init() {
   cli();
   leds.set_mode(DIGITAL_OUTPUT);
-  inputs.set_mode(DIGITAL_INPUT);
-  inputs.EnablePullUpResistors();
+  //inputs.set_mode(DIGITAL_INPUT);
+  //inputs.EnablePullUpResistors();
+  reset_input.EnablePullUpResistor();
+  button_input.EnablePullUpResistor();
+  clock_input.EnablePullUpResistor();
 }
 
 void WriteBufferToFlash() {
@@ -129,7 +138,7 @@ inline void LoaderLoop() {
     if (TCNT2 >= (F_CPU / 8 / 40000 - 1)) {
       TCNT2 = 0;
       
-      switch (decoder.PushSample(inputs.Read() & INPUT_CLOCK)) {
+      switch (decoder.PushSample(clock_input.Read())) {
         case DECODER_STATE_ERROR_SYNC:
           FlashLedsError();
           decoder.Sync();
@@ -240,7 +249,7 @@ int main(void) {
   ResetWatchdog();
   Init();
   _delay_ms(40);
-  if (!(inputs.Read() & INPUT_SW_RESET)) {
+  if (!(button_input.Read())) {
     FlashLedsOk();
     LoaderLoop();
     FlashLedsOk();

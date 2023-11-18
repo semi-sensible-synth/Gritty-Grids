@@ -1,3 +1,12 @@
+# Modified for triggerspace (NanaGris-MIDI)
+
+- Clock pin is now D8 (PB0)
+- Serial Tx (PD1) is now MIDI out pin
+- Clock input, reset input and button (INPUT_SW_RESET) 
+  are now handled as individual boolean digital input pins rather than
+  packed into a bit-array as 'inputs'.
+- TODO: MIDI out drum triggers on channel 10
+
 # Gritty Grids - An Improved MIDI Implementation for Grids
 Grids is a topographic (drum) sequencer for Eurorack modular synthesizers 
 developed by Mutable Instruments.
@@ -45,6 +54,35 @@ flashing AVR controllers search the web for instructions.
 
 If you want to go back to the original stock firmware flash 
 "grids_original.hex".
+
+On Ubuntu 22.04, with a CH341 Nano clone, I needed to first disable `brltty` so it wouldn't claim the USB device. Do:
+```bash
+sudo systemctl stop brltty-udev.service
+sudo systemctl mask brltty-udev.service
+sudo systemctl stop brltty.service
+sudo systemctl disable brltty.service
+```
+
+Then build and flash like:
+```bash
+make
+
+avrdude -C /etc/avrdude.conf -v \
+        -p atmega328p \
+        -c arduino \
+        -P /dev/ttyUSB0 \
+        -b 57600 -D \
+        -U flash:w:build/grids/grids.hex:i
+```
+
+Or, if you are using a USBasp programmer:
+```bash
+avrdude -C /etc/avrdude.conf -v \
+        -p atmega328p \
+        -c usbasp \
+        -u \
+        -U flash:w:build/grids/grids.hex:i
+```
 
 
 ### Gritty Grids User Manual

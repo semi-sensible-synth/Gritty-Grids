@@ -50,17 +50,42 @@ enum InputBits {
 };
 
 using avrlib::Gpio;
+using avrlib::DigitalInput;
 using avrlib::ParallelPort;
 using avrlib::PortB;
 using avrlib::PortD;
 using avrlib::Serial;
 using avrlib::SerialPort0;
 using avrlib::SpiMaster;
+//using avrlib::BufferedSoftwareSerialOutput;
 
-typedef ParallelPort<PortD, avrlib::PARALLEL_NIBBLE_HIGH> Leds;
-typedef ParallelPort<PortD, avrlib::PARALLEL_NIBBLE_LOW> Inputs;
+typedef ParallelPort<PortD, avrlib::PARALLEL_NIBBLE_HIGH> Leds;   // D4, D5, D6, D7
+
+// Replaced by GPIOs below, since D1 in now used for MIDI OUT (on SerialPort0/TX/D1)
+//typedef ParallelPort<PortD, avrlib::PARALLEL_NIBBLE_LOW> Inputs;  // (D0), D1, D2, D3
+
+typedef Gpio<PortD, 2> _resetPin;  // D2 (PD2)
+typedef Gpio<PortD, 3> _buttonPin; // D3 (PD3)
+typedef Gpio<PortB, 0> _clockPin;  // D8 (PB0) (moved from PD1)
+
+typedef DigitalInput<_resetPin> ResetInput;  // D2 (PD2)
+typedef DigitalInput<_buttonPin> ButtonInput; // D3 (PD3)
+typedef DigitalInput<_clockPin> ClockInput;  // D8 (PB0) (moved from PD1)
+
 typedef SpiMaster<Gpio<PortB, 2>, avrlib::MSB_FIRST, 2> ShiftRegister;
-typedef Serial<SerialPort0, 31250, avrlib::POLLED, avrlib::DISABLED> MidiInput;
+
+// typedef Serial<SerialPort0, 31250, avrlib::POLLED, avrlib::DISABLED> MidiInput;
+// MIDI serial is now in and out (PD0/PD1)
+typedef Serial<SerialPort0, 31250, avrlib::POLLED, avrlib::POLLED> MidiIO;
+
+// Alternative - use buffered software serial as MIDI out ?
+// (if this works well enough, we also get some flexibility with hardware pins)
+// BufferedSoftwareSerialOutput<Gpio<PortD, 1>, 31250, 4800, 16> MidiOut;
+// MIDI In (with Rx enabled, Tx disabled)
+//typedef Serial<SerialPort0, 31250, avrlib::POLLED, avrlib::DISABLED> MidiIO;
+
+static uint8_t midi_channel = 9;  // channel 10
+
 }  // namespace grids
 
 #endif  // GRIDS_HARDWARE_CONFIG_H_

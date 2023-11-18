@@ -47,15 +47,22 @@
 #include "grids/clock.h"
 #include "grids/hardware_config.h"
 #include "grids/pattern_generator.h"
+#include "grids/midi.h"
+//#include "avrlib/software_serial.h"
 
 using namespace avrlib;
 using namespace grids;
 
 Leds leds;
-Inputs inputs;
+// Inputs inputs;
+ResetInput reset_input;
+ButtonInput button_input;
+ClockInput clock_input;
+
 AdcInputScanner adc;
 ShiftRegister shift_register;
-MidiInput midi;
+//MidiInput midi;
+MidiIO midi;
 
 enum Parameter {
   PARAMETER_NONE,
@@ -82,6 +89,7 @@ uint8_t clocked_by_midi = 0;  // 1 = MIDI Clock advances Grids, 2 = MIDI Stop re
 uint8_t mute = 0;             // 1 = drum and accent outputs are muted
 uint8_t external_clock = 0;   // 1 = Grids is in external clock mode (clock knob = min,
                               // accept pulses on clock input or by midi clock messages)
+
 
 inline void UpdateLeds() {
   uint8_t pattern;
@@ -162,6 +170,54 @@ inline void UpdateShiftRegister() {
   if (state != previous_state) {
     previous_state = state;
     shift_register.Write(state);
+    
+    /*
+    WIP: Hardware MIDI out works (tested with an Arduino sketch)
+         When sending MIDI out here, we get (reproducible) incorrect bits
+         Buffering MIDI in the ISR and sending outside the ISR doesn't help.
+
+    // TODO: Set velocity (or open HH vs close HH) based on accents 
+    if (state & 0x01) { // BD
+      // TODO: 3-byte MIDI messages are garbled, but consistent. Seems like the first byte is often close, but the
+      //       second two are completely wrong, and often followed by two 0x00, 0x00 bytes I didn't send ...
+      //       Bytes are as expected if we use a simple Arduino example instead.
+      //       Tried:
+      //         - smaller serial i/o buffer size (kSerialOutputBufferSize = 8)
+      //         - changing Serial config to <avrlib::POLLED, avrlib::BUFFERED> - works, but unsure if buffered output
+      //           is actually implemented in avrlib
+      //         - using midi_->NonBlockingWrite(byte) instead of midi_->Write(byte) - no apparent difference
+      //         - sending simple bytes (0xFF works, but others like 0xF8 don't send at all ?)
+      //         - MIDI In clock doesn't seem to be working ? Should trace routes with multimeter as sanity check.
+
+      // This is supposed to be what we want (note on, channel 10, C2?) - it's not !
+      MidiDevice::BufferNote(midi_channel, BD_NOTE, 0x7f);
+      
+      // as a test, this appears to work (we get 11111111 [0xFF])
+      // MidiDevice::SendMidiNow(0xFF);
+    
+      // 0x00 is sent as 0x88, 0x00, 0x00 ==:
+      // 10001000 00000000 00000000
+      // The first byte is the same as when we attempt to send BD_NOTE (0x99, 0x24, 0x7f) and get:
+      // 10001000 00110001 00001000 11111111 11111111  (0x88, 0x31, 0x08, 0x00, 0x00) instead of:
+      // 10011001 00100100 01111111
+      // MidiDevice::SendMidiNow(0x00);
+
+      // no bytes received over MIDI - (should be 11111000) ?
+      // MidiDevice::SendMidiNow(0xF8);  // clock (supposed to be 24 pqn)
+    }
+    if (state & 0x02) { // SD
+      MidiDevice::BufferNote(midi_channel, SD_NOTE, 0x7f);
+    }
+    if (state & 0x04) { // HH
+      // Accent bitmasks are 0x08, 0x10, 0x20
+      if (state & 0x20) {
+        MidiDevice::BufferNote(midi_channel, OH_NOTE, 0x7f);
+      } else {
+        MidiDevice::BufferNote(midi_channel, HH_NOTE, 0x7f);
+      }
+    }
+    */
+
     if (!state) {
       // Switch off the LEDs, but not now.
       led_off_timer = 200;
@@ -176,9 +232,13 @@ inline void UpdateShiftRegister() {
 uint8_t ticks_granularity[] = { 6, 3, 1 };
 
 inline void HandleClockResetInputs() {
-  static uint8_t previous_inputs;
+  //static uint8_t previous_inputs;
+  static bool previous_clock_value;
+  static bool previous_reset_value;
   
-  uint8_t inputs_value = ~inputs.Read();
+  //uint8_t inputs_value = ~inputs.Read();
+  bool clock_value = ~clock_input.Read();
+  bool reset_value = reset_input.Read();
   uint8_t num_ticks = 0;
   uint8_t increment = ticks_granularity[pattern_generator.clock_resolution()];
   
@@ -188,12 +248,12 @@ inline void HandleClockResetInputs() {
       external_clock = 1;
       mute = 1;			// activate mute when entering external clock mode
     }
-    if ((inputs_value & INPUT_CLOCK) && !(previous_inputs & INPUT_CLOCK)) {
+    if ((clock_value) && !(previous_clock_value)) {
       if (!clocked_by_midi) {
         num_ticks = increment;
       }
     }
-    if (!(inputs_value & INPUT_CLOCK) && (previous_inputs & INPUT_CLOCK)) {
+    if (!(clock_value) && (previous_clock_value)) {
       pattern_generator.ClockFallingEdge();
     }
     if (midi.readable()) {
@@ -212,6 +272,7 @@ inline void HandleClockResetInputs() {
       }
       else if (byte == 0xfc) {		// MIDI Stop message
         clocked_by_midi = 2;
+        // AllNotesOff();
       }
     }
   } else {
@@ -237,16 +298,18 @@ inline void HandleClockResetInputs() {
 
   // RESET
   if (clocked_by_midi) {
-    if ((inputs_value & INPUT_RESET) && !(previous_inputs & INPUT_RESET)) {
+    if ((reset_value) && !(previous_reset_value)) {
       mute = 1;			// activate mute on rising edge
     }
-    if (!(inputs_value & INPUT_RESET) && (previous_inputs & INPUT_RESET)) {
+    if (!(reset_value) && (previous_reset_value)) {
       mute = 0;			// deactivate mute on falling edge
       led_pattern = 0;
     }
   } else {
-    if ((inputs_value & INPUT_RESET) && !(previous_inputs & INPUT_RESET)) {
+    if ((reset_value) && !(previous_reset_value)) {
       pattern_generator.Reset();
+      // AllNotesOff();
+
       // !! HACK AHEAD !!
       // 
       // Earlier versions of the firmware retriggered the outputs whenever a
@@ -271,7 +334,9 @@ inline void HandleClockResetInputs() {
       }
     }
   }
-  previous_inputs = inputs_value;
+  //previous_inputs = inputs_value;
+  previous_clock_value = clock_value;
+  previous_reset_value = reset_value;
   
   if (num_ticks) {
     swing_amount = pattern_generator.swing_amount();
@@ -291,7 +356,7 @@ inline void HandleTapButton() {
   static uint16_t switch_hold_time = 0;
   
   switch_state = switch_state << 1;
-  if (inputs.Read() & INPUT_SW_RESET) {
+  if (button_input.Read()) {
     switch_state |= 1;
   }
   
@@ -354,8 +419,9 @@ ISR(TIMER2_COMPA_vect, ISR_NOBLOCK) {
   }
   
   HandleClockResetInputs();
+
   adc.Scan();
-  
+
   pattern_generator.IncrementPulseCounter();
   UpdateShiftRegister();
   UpdateLeds();
@@ -446,8 +512,11 @@ void Init() {
   UCSR0B = 0;
   
   leds.set_mode(DIGITAL_OUTPUT);
-  inputs.set_mode(DIGITAL_INPUT);
-  inputs.EnablePullUpResistors();
+  //inputs.set_mode(DIGITAL_INPUT);
+  //inputs.EnablePullUpResistors();
+  reset_input.EnablePullUpResistor();
+  button_input.EnablePullUpResistor();
+  clock_input.EnablePullUpResistor();
   
   clock.Init();
   adc.Init();
@@ -457,6 +526,7 @@ void Init() {
   pattern_generator.Init();
   shift_register.Init();
   midi.Init();
+  MidiDevice::Init(midi);
   
   TCCR2A = _BV(WGM21);
   TCCR2B = 3;
@@ -468,8 +538,18 @@ int main(void) {
   ResetWatchdog();
   Init();
   clock.Update(120, pattern_generator.clock_resolution());
+  
+  //MidiDevice::SendMidi3(midi_channel, BD_NOTE, 0x7f);
+
   while (1) {
     // Use any spare cycles to read the CVs and update the potentiometers
     ScanPots();
+
+    // Disable interupts when sending MIDI buffer so it can get updated underneath us
+    if (output_buffer_index > 0) {
+      cli();
+      MidiDevice::SendBuffer();
+      sei();
+    }
   }
 }
