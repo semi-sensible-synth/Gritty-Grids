@@ -4,88 +4,89 @@
 #include "avrlib/base.h"
 #include "grids/hardware_config.h"
 
-#define MIDI_BUFFER_SIZE 16
+#define MIDI_BUFFER_SIZE 64 // Increased buffer size
 
-namespace grids {
+namespace grids
+{
 
-static uint8_t BD_NOTE = 0x24;
-static uint8_t SD_NOTE = 0x26;
-static uint8_t HH_NOTE = 0x2a;
-static uint8_t OH_NOTE = 0x2e;
+  static constexpr uint8_t MIDI_CHANNEL = 9; // channel 10 (channel index 0-15)
 
-static volatile uint8_t output_buffer[MIDI_BUFFER_SIZE];
-static volatile uint8_t output_buffer_index = 0;  
+  // General MIDI note numbers
+  static uint8_t BD_NOTE = 0x24;        // Kick Drum (Electric Bass Drum or High Bass Drum)
+  static uint8_t SD_NOTE = 0x26;        // Snare Drum (Acoustic Snare)
+  static uint8_t HH_NOTE = 0x2a;        // Closed Hi-Hat
+  static uint8_t BD_ACCENT_NOTE = 0x24; // Kick Drum (Electric Bass Drum or High Bass Drum)
+  static uint8_t SD_ACCENT_NOTE = 0x26; // Snare Drum (Acoustic Snare)
+  static uint8_t HH_ACCENT_NOTE = 0x2e; // Open Hi-Hat
 
-class MidiDevice {
-public:
-  // Initialize the static MidiIO instance
-  static inline void Init(MidiIO& midi_instance) {
-    midi_ = &midi_instance;
-  }
+  // Circular buffer implementation
+  static volatile uint8_t output_buffer[MIDI_BUFFER_SIZE];
+  static volatile uint8_t buffer_head = 0;
+  static volatile uint8_t buffer_tail = 0;
 
-  static inline void Buffer(uint8_t byte) {
-    if (output_buffer_index < MIDI_BUFFER_SIZE) {
-      output_buffer[output_buffer_index++] = byte;
+  class MidiDevice
+  {
+  public:
+    // Initialize the static MidiIO instance
+    static inline void Init(MidiIO &midi_instance)
+    {
+      midi_ = &midi_instance;
     }
-  }
 
-  static inline void SendBuffer() {
-    if (output_buffer_index > 0) {
-      for (uint8_t i = 0; i < output_buffer_index; ++i) {
-        midi_->Write(output_buffer[i]);
+    // Buffer a single byte into the circular buffer
+    static inline void Buffer(uint8_t byte)
+    {
+      uint8_t next_head = (buffer_head + 1) % MIDI_BUFFER_SIZE;
+      if (next_head != buffer_tail)
+      { // Ensure buffer is not full
+        output_buffer[buffer_head] = byte;
+        buffer_head = next_head;
       }
-      output_buffer_index = 0;
+      // Else: Buffer overflow, notes will be dropped
     }
-  }
 
-  static inline void SendMidiNow(uint8_t byte) {
-    if (midi_) {
-      midi_->NonBlockingWrite(byte);
+    // Send all buffered MIDI bytes
+    static inline void SendBuffer()
+    {
+      while (buffer_tail != buffer_head)
+      {
+        midi_->Write(output_buffer[buffer_tail]);
+        buffer_tail = (buffer_tail + 1) % MIDI_BUFFER_SIZE;
+      }
     }
-  }
 
-  static inline void SendMidi(uint8_t byte) {
-    if (midi_) {
-      midi_->Write(byte);
+    // Send a 3-byte MIDI message
+    static inline void BufferMidiMessage(uint8_t a, uint8_t b, uint8_t c)
+    {
+      Buffer(a);
+      Buffer(b);
+      Buffer(c);
     }
-  }
 
-  // Send a 3-byte MIDI message
-  static inline void SendMidi3(uint8_t a, uint8_t b, uint8_t c) {
-    if (midi_) {
-      midi_->Write(a);
-      midi_->Write(b);
-      midi_->Write(c);
-      // midi_->NonBlockingWrite(a);
-      // midi_->NonBlockingWrite(b);
-      // midi_->NonBlockingWrite(c);
+    // Buffer a MIDI note
+    static inline void BufferNote(uint8_t channel, uint8_t note, uint8_t velocity)
+    {
+      BufferMidiMessage(0x90 | channel, note, velocity);
+      // TODO: Add an option (compile time ? module config ?) to buffer
+      // an immediate note off if we don't want notes held (trigger vs gate)
+      // BufferMidiMessage(0x80 | channel, note, 0)
     }
-  }
 
-  static inline void BufferNote(uint8_t channel, uint8_t note, uint8_t velocity) {
-    Buffer(0x90 | channel);
-    Buffer(note);
-    Buffer(velocity);
-  }
+    // Buffer All Notes Off for a specific channel
+    static inline void BufferAllNotesOff(uint8_t channel)
+    {
+      BufferMidiMessage(0x80 | channel, BD_NOTE, 0);
+      BufferMidiMessage(0x80 | channel, SD_NOTE, 0);
+      BufferMidiMessage(0x80 | channel, HH_NOTE, 0);
+      BufferMidiMessage(0x80 | channel, BD_ACCENT_NOTE, 0);
+      BufferMidiMessage(0x80 | channel, SD_ACCENT_NOTE, 0);
+      BufferMidiMessage(0x80 | channel, HH_ACCENT_NOTE, 0);
+    }
 
-  // Trigger a MIDI note
-  static inline void TriggerNote(uint8_t channel, uint8_t note, uint8_t velocity) {
-    SendMidi3(0x90 | channel, note, velocity);
-  }
+  private:
+    static MidiIO *midi_;
+  };
 
-  // Turn off all MIDI notes
-  static inline void AllNotesOff(uint8_t channel) {
-    SendMidi3(0x80 | channel, 0x24, 0);
-    SendMidi3(0x80 | channel, 0x26, 0);
-    SendMidi3(0x80 | channel, 0x2a, 0);
-    SendMidi3(0x80 | channel, 0x2e, 0);
-  }
+} // namespace grids
 
-private:
-  // Static member variable to hold the MidiIO instance
-  static MidiIO* midi_;
-};
-
-}  // namespace grids
-
-#endif  // GRIDS_MIDI_H_
+#endif // GRIDS_MIDI_H_

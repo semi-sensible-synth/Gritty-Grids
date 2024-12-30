@@ -1,11 +1,11 @@
-# Modified for triggerspace (NanaGris-MIDI)
+# Modified for triggerspace (NanoGris-MIDI)
 
 - Clock pin is now D8 (PB0)
 - Serial Tx (PD1) is now MIDI out pin
 - Clock input, reset input and button (INPUT_SW_RESET) 
   are now handled as individual boolean digital input pins rather than
   packed into a bit-array as 'inputs'.
-- TODO: MIDI out drum triggers on channel 10
+- MIDI out drum triggers on channel 10
 
 # Gritty Grids - An Improved MIDI Implementation for Grids
 Grids is a topographic (drum) sequencer for Eurorack modular synthesizers 
@@ -77,6 +77,8 @@ avrdude -C /etc/avrdude.conf -v \
 
 Or, if you are using a USBasp programmer:
 ```bash
+make
+
 avrdude -C /etc/avrdude.conf -v \
         -p atmega328p \
         -c usbasp \

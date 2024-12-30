@@ -13,6 +13,8 @@
 
 VERSION        = 0.1
 MCU_NAME       = 328
+#F_CPU          = 16000000 # 16MHz at one point I needed this for correct MIDI baud rate ?
+F_CPU          = 20000000 # 20MHz original Grids speed
 TARGET         = grids_bootloader
 PACKAGES       = avrlib grids/bootloader avr_audio_bootloader/fsk
 EXTRA_DEFINES  = -funsigned-char -fno-inline-small-functions -DDISABLE_DEFAULT_UART_RX_ISR
